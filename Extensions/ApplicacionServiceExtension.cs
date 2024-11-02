@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using WebHook8.Integrations;
 using WebHook8.Services;
 using WebHook8.Util;
 
@@ -15,12 +16,15 @@ public static class ApplicacionServiceExtension
             });
         public static void AddProjectServices(this IServiceCollection services, IConfiguration configuration)
         {
-        services.AddSingleton<IDialogflowAPI>(provider => new DialogflowAPI(configuration));
+        services.Configure<DialogflowConfig>(configuration.GetSection("DialogflowConfig"));
+        services.AddSingleton<IDialogflowService, DialogflowService>();
         services.Configure<EWhatsAppSettings>(configuration.GetSection("AppSettings"));
-        services.AddSingleton<IUtil, Util>();   
+        services.AddScoped<IWhatsappCloudSendMessage, WhatsappCloudSendMessage>();
+        services.AddSingleton<IUtil, Util>();
+        services.AddScoped<IWhatsAppDialogflowHandler, WhatsappDialogflowHandler>();
 
         //services.AddTransient<WhatsAppDialogflowHandler>();
-        }
+    }
     //public static void AddWhatsappAPI(this IServiceCollection services, IConfiguration configuration)
     //{
     //    // Configurar WhatsAppSettings desde appsettings.json
