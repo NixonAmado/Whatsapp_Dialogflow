@@ -1,32 +1,53 @@
-﻿using Google.Cloud.Dialogflow.V2;
+﻿using Google.Apis.Auth.OAuth2;
+using Google.Cloud.Dialogflow.V2;
+using Microsoft.Extensions.Options;
+using System.Text.Json;
+using Grpc.Core;
+using Grpc.Auth;
 using WebHook8.Services;
 
-public class DialogflowAPI: IDialogflowAPI
+public class DialogflowService : IDialogflowService
 {
     private readonly SessionsClient _sessionsClient;
     private readonly string _projectId;
 
-    public DialogflowAPI(IConfiguration configuration)
+    public DialogflowService(IOptions<DialogflowConfig> config)
     {
-        _projectId = configuration["Dialogflow:ProjectId"];
-        _sessionsClient = SessionsClient.Create();
-    }
+        var dialogflowConfig = config.Value;
+        _projectId = dialogflowConfig.ProjectId;
 
-    public async Task<string> GetResponseAsync(string userText)
-    {
-        var sessionId = Guid.NewGuid().ToString();
-        var sessionName = new SessionName(_projectId, sessionId);
+        var credentials = GetCredentialsFromConfig(dialogflowConfig.Credentials);
 
-        var queryInput = new QueryInput
+        var builder = new SessionsClientBuilder
         {
-            Text = new TextInput
-            {
-                Text = userText,
-                LanguageCode = "es"
-            }
+            Endpoint = "dialogflow.googleapis.com:443",
+            ChannelCredentials = credentials.ToChannelCredentials()
         };
 
-        var response = await _sessionsClient.DetectIntentAsync(sessionName, queryInput);
-        return response.QueryResult.FulfillmentText;
+        _sessionsClient = builder.Build();
+    }
+
+    private GoogleCredential GetCredentialsFromConfig(DialogflowCredentials credentials)
+    {
+        var credentialsJson = JsonSerializer.Serialize(credentials);
+        return GoogleCredential.FromJson(credentialsJson)
+            .CreateScoped(SessionsClient.DefaultScopes);
+    }
+
+    public async Task<DetectIntentResponse> DetectIntentAsync(string sessionId, string text, string languageCode = "es")
+    {
+        try
+        {
+            var sessionPath = SessionName.FromProjectSession(_projectId, sessionId);
+            var textInput = new TextInput { Text = text, LanguageCode = languageCode };
+            var queryInput = new QueryInput { Text = textInput };
+
+            return await _sessionsClient.DetectIntentAsync(sessionPath, queryInput);
+        }
+        catch (Exception ex)
+        {
+            // Aquí puedes agregar logging
+            throw;
+        }
     }
 }
