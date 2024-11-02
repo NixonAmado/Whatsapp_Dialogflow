@@ -1,6 +1,8 @@
 ﻿using Google.Api;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using WebHook8.Integrations;
+using WebHook8.Models.WhatsappCloud;
 using WebHook8.Services;
 using WebHook8.Util;
 
@@ -13,11 +15,23 @@ namespace WebHook8.Controllers
         private readonly IWhatsappCloudSendMessage _whatsappCloudSendMessage;
         private readonly IUtil _util;
         private readonly EWhatsAppSettings _whatsappSettings;
-        public WhatsappController(IWhatsappCloudSendMessage whatsappCloudSendMessage, IUtil util, IOptions<EWhatsAppSettings> whatsappSettings)
+        private readonly ILogger<WhatsappController> _logger;
+        private readonly IWhatsAppDialogflowHandler _whatsAppDialogflowHandler;
+
+        public WhatsappController(
+            IWhatsappCloudSendMessage whatsappCloudSendMessage,
+            IUtil util,
+            IWhatsAppDialogflowHandler whatsAppDialogflowHandler,
+            IOptions<EWhatsAppSettings> whatsappSettings,
+            ILogger<WhatsappController> logger)
+           
+
         {
             _whatsappCloudSendMessage = whatsappCloudSendMessage;
             _util = util;
             _whatsappSettings = whatsappSettings.Value;
+            _logger = logger;
+            _whatsAppDialogflowHandler = whatsAppDialogflowHandler;
         }
 
 
@@ -34,6 +48,7 @@ namespace WebHook8.Controllers
             }
             else
             {
+                _logger.LogWarning("Token verification failed.");
                 return BadRequest();
             }
         }
@@ -48,11 +63,15 @@ namespace WebHook8.Controllers
                 if (verifyMmessage  != null)
                 {
                     var message = verifyMmessage[0];
-                    var userNumber = message.From;
-                    var userText = GetUserText(message);
-                    object objectMessage;
-                    objectMessage = _util.TextMessage("Pruebas ejemplo de texto", userNumber);
-                    await _whatsappCloudSendMessage.Execute(objectMessage);
+                    EWhatsAppMessage whatsappMessage = new EWhatsAppMessage
+                    {
+                        UserNumber = message.From,
+                        UserText = GetUserText(message)
+                    };
+
+                    await _whatsAppDialogflowHandler.HandleIncomingMessage(whatsappMessage);
+                    
+                    _logger.LogInformation("Message sent successfully to {userNumber}", message.From);
                 }
                 return Ok("EVENT_RECEIVED");
 
@@ -60,6 +79,7 @@ namespace WebHook8.Controllers
             catch (Exception ex)
             {
                 // Es necesario, ya que si no esta, whatsapp genera un ciclo infinito
+                _logger.LogError(ex, "Error receiving message");
                 return Ok("EVENT_RECEIVED");
 
 
@@ -69,31 +89,27 @@ namespace WebHook8.Controllers
 
         private string GetUserText(Message message)
         {
-            string messageType = message.Type;
-            if (messageType.ToUpper() == "TEXT")
+            string messageType = message.Type.ToUpper();
+
+            switch (messageType)
             {
-                return message.Text.Body;
-            }
-            else if (messageType.ToUpper() == "INTERACTIVE")
-            {
-                string interactiveType = message.Interactive.Type;
-                if (interactiveType.ToUpper() == "LIST_REPLY")
-                {
-                    return message.Interactive.List_Reply.Title;
-                }
-                if (interactiveType.ToUpper() == "BUTTON_REPLY")
-                {
-                    return message.Interactive.Button_Reply.Title;
-                }
-                else
-                {
+                case "TEXT":
+                    return message.Text.Body;
+
+                case "INTERACTIVE":
+                    string interactiveType = message.Interactive.Type.ToUpper();
+
+                    return interactiveType switch
+                    {
+                        "LIST_REPLY" => message.Interactive.List_Reply.Title,
+                        "BUTTON_REPLY" => message.Interactive.Button_Reply.Title,
+                        _ => string.Empty
+                    };
+
+                default:
                     return string.Empty;
-                }
-            }
-            else
-            {
-                return string.Empty;
             }
         }
+
     }
 }
